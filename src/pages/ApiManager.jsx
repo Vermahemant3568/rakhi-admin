@@ -94,7 +94,9 @@ export default function ApiManager() {
   const fetchServices = async () => {
     try {
       const res = await api.get('/api-manager');
-      setServices(Array.isArray(res.data) ? res.data : (res.data?.data ?? []));
+      const data = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      console.log('ALL SERVICES:', JSON.stringify(data));
+      setServices(data);
     } catch {
       setError('Failed to load API services.');
     } finally {
