@@ -16,10 +16,12 @@ export default function Login() {
     setError('');
     try {
       const res = await api.post('/login', form);
+      console.log('login response:', res.data);
       setAuth(res.data.admin, res.data.token);
       navigate('/dashboard');
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      console.log('login error:', err?.response?.status, err?.response?.data);
+      setError(err?.response?.data?.message ?? 'Invalid credentials. Please try again.');
     } finally {
       setLoading(false);
     }
