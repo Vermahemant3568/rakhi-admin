@@ -52,13 +52,20 @@ export default function ApiManager() {
   };
 
   const handleEditSave = async (id) => {
+    let config;
     try {
-      const config = JSON.parse(editConfig);
+      config = JSON.parse(editConfig);
+    } catch {
+      setError('Invalid JSON — please check the config format.');
+      return;
+    }
+    try {
       await api.put(`/api-manager/${id}/update`, { config });
       setEditingId(null);
+      setError('');
       fetchServices();
-    } catch {
-      alert('Invalid JSON or save failed.');
+    } catch (e) {
+      setError(e.response?.data?.message ?? e.response?.data?.error ?? 'Save failed. Please try again.');
     }
   };
 
