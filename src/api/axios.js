@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://13.234.114.78/api/admin',
+  baseURL: 'https://api.rakhihealth.in/api/admin',
   headers: { 'Content-Type': 'application/json' },
 });
 
