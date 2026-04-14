@@ -60,7 +60,7 @@ export default function ApiManager() {
       return;
     }
     try {
-      await api.put(`/api-manager/${id}/update`, { config });
+      await api.put(`/api-manager/${id}`, { config });
       setEditingId(null);
       setError('');
       fetchServices();
