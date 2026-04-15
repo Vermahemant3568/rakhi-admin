@@ -20,7 +20,6 @@ const SERVICE_ICONS = {
   pusher:     '📡',
 };
 
-// Fallback fields if backend config is empty/null
 const SERVICE_FIELDS = {
   fast2sms:   ['api_key'],
   msg91:      ['api_key', 'template_id'],
@@ -33,19 +32,21 @@ const SERVICE_FIELDS = {
 };
 
 const FIELD_META = {
-  api_key:    { label: 'API Key',     secret: true  },
-  template_id:{ label: 'Template ID', secret: false },
-  host:       { label: 'Host',        secret: false },
-  index:      { label: 'Index Name',  secret: false },
-  key_id:     { label: 'Key ID',      secret: false },
-  key_secret: { label: 'Key Secret',  secret: true  },
-  server_key: { label: 'Server Key',  secret: true  },
-  project_id: { label: 'Project ID',  secret: false },
-  app_id:     { label: 'App ID',      secret: false },
-  app_key:    { label: 'App Key',     secret: false },
-  app_secret: { label: 'App Secret',  secret: true  },
-  cluster:    { label: 'Cluster',     secret: false },
+  api_key:     { label: 'API Key',       secret: true  },
+  template_id: { label: 'OTP Template ID', secret: false },
+  host:        { label: 'Host',          secret: false },
+  index:       { label: 'Index Name',    secret: false },
+  key_id:      { label: 'Key ID',        secret: false },
+  key_secret:  { label: 'Key Secret',    secret: true  },
+  server_key:  { label: 'Server Key',    secret: true  },
+  project_id:  { label: 'Project ID',    secret: false },
+  app_id:      { label: 'App ID',        secret: false },
+  app_key:     { label: 'App Key',       secret: false },
+  app_secret:  { label: 'App Secret',    secret: true  },
+  cluster:     { label: 'Cluster',       secret: false },
 };
+
+const OTP_SERVICES = ['msg91', 'fast2sms'];
 
 const icon = (name) => SERVICE_ICONS[name?.toLowerCase()] ?? '🔌';
 
@@ -78,24 +79,112 @@ function ConfigField({ fieldKey, label, value, onChange }) {
   );
 }
 
+function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditingId, saving, testing, toggling, handleToggle, handleTest, handleEditOpen, handleEditSave, otpBadge }) {
+  const configured = Object.values(service.config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
+  const isEditing  = editingId === service.id;
+
+  return (
+    <div className={`rounded-2xl border transition ${isEditing ? 'bg-gray-800 border-purple-700' : 'bg-gray-900 border-gray-800'}`}>
+      <div className="flex items-center justify-between p-5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-xl">
+            {icon(service.service_name)}
+          </div>
+          <div>
+            <p className="text-white font-semibold">{service.display_name}</p>
+            <p className="text-gray-500 text-xs">{service.service_name}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {otpBadge && (
+            <span className={`text-xs px-2 py-1 rounded-full font-medium ${otpBadge.cls}`}>
+              {otpBadge.label}
+            </span>
+          )}
+          <span className={`text-xs px-2 py-1 rounded-full ${configured ? 'bg-blue-900/40 text-blue-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+            {configured ? '🔑 Configured' : '⚠️ Not Configured'}
+          </span>
+          {service.last_tested_at && (
+            <span className="text-xs text-gray-600 hidden sm:block">
+              Tested {new Date(service.last_tested_at).toLocaleDateString()}
+            </span>
+          )}
+          <ToggleSwitch
+            enabled={!!service.is_active}
+            disabled={toggling === service.id}
+            onChange={(val) => handleToggle(service.id, val)}
+          />
+          <button
+            onClick={() => handleTest(service.id)}
+            disabled={testing === service.id}
+            className="text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition"
+          >
+            {testing === service.id ? 'Testing…' : '🧪 Test'}
+          </button>
+          <button
+            onClick={() => isEditing ? setEditingId(null) : handleEditOpen(service)}
+            className={`text-xs px-3 py-1.5 rounded-lg transition ${isEditing ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
+          >
+            {isEditing ? 'Cancel' : '✏️ Edit Config'}
+          </button>
+        </div>
+      </div>
+
+      {isEditing && (
+        <div className="px-5 pb-5 border-t border-gray-700 pt-4">
+          <p className="text-xs text-gray-500 mb-3">
+            Update the credentials for <span className="text-white">{service.display_name}</span>
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Object.keys(editConfig).map(key => (
+              <ConfigField
+                key={key}
+                fieldKey={key}
+                label={service.field_labels?.[key]}
+                value={editConfig[key]}
+                onChange={(val) => setEditConfig(prev => ({ ...prev, [key]: val }))}
+              />
+            ))}
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => handleEditSave(service.id)}
+              disabled={saving}
+              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm px-5 py-2 rounded-lg transition"
+            >
+              {saving ? 'Saving…' : '💾 Save Config'}
+            </button>
+            <button
+              onClick={() => setEditingId(null)}
+              className="bg-gray-700 hover:bg-gray-600 text-white text-sm px-4 py-2 rounded-lg transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ApiManager() {
-  const [services,  setServices]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [testing,   setTesting]   = useState(null);
-  const [toggling,  setToggling]  = useState(null);
-  const [editingId, setEditingId] = useState(null);
+  const [services,   setServices]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [testing,    setTesting]    = useState(null);
+  const [toggling,   setToggling]   = useState(null);
+  const [editingId,  setEditingId]  = useState(null);
   const [editConfig, setEditConfig] = useState({});
-  const [saving,    setSaving]    = useState(false);
-  const [error,     setError]     = useState('');
-  const [success,   setSuccess]   = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState('');
+  const [success,    setSuccess]    = useState('');
 
   useEffect(() => { fetchServices(); }, []);
 
   const fetchServices = async () => {
     try {
-      const res = await api.get('/api-manager');
+      const res  = await api.get('/api-manager');
       const data = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-      console.log('ALL SERVICES:', JSON.stringify(data));
       setServices(data);
     } catch {
       setError('Failed to load API services.');
@@ -162,6 +251,23 @@ export default function ApiManager() {
   const isConfigured = (config) =>
     Object.values(config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
 
+  const otpServices   = services.filter(s => OTP_SERVICES.includes(s.service_name?.toLowerCase()));
+  const otherServices = services.filter(s => !OTP_SERVICES.includes(s.service_name?.toLowerCase()));
+  const msg91Active   = otpServices.find(s => s.service_name?.toLowerCase() === 'msg91')?.is_active;
+
+  const getOtpBadge = (service) => {
+    const name = service.service_name?.toLowerCase();
+    if (name === 'msg91' && service.is_active)
+      return { label: '⭐ Primary OTP', cls: 'bg-purple-900/50 text-purple-300 border border-purple-700' };
+    if (name === 'fast2sms' && service.is_active && !msg91Active)
+      return { label: '⭐ Primary OTP', cls: 'bg-purple-900/50 text-purple-300 border border-purple-700' };
+    if (name === 'fast2sms' && msg91Active)
+      return { label: '⏸ Overridden by MSG91', cls: 'bg-gray-800 text-gray-500 border border-gray-700' };
+    return null;
+  };
+
+  const cardProps = { editingId, editConfig, setEditConfig, setEditingId, saving, testing, toggling, handleToggle, handleTest, handleEditOpen, handleEditSave };
+
   if (loading) return (
     <div className="flex justify-center items-center h-64">
       <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
@@ -211,104 +317,25 @@ export default function ApiManager() {
           </div>
         )}
 
-        {services.map((service) => {
-          const configured = isConfigured(service.config);
-          const isEditing  = editingId === service.id;
-
-          return (
-            <div key={service.id} className={`rounded-2xl border transition ${
-              isEditing ? 'bg-gray-800 border-purple-700' : 'bg-gray-900 border-gray-800'
-            }`}>
-              {/* Card Header */}
-              <div className="flex items-center justify-between p-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-xl">
-                    {icon(service.service_name)}
-                  </div>
-                  <div>
-                    <p className="text-white font-semibold">{service.display_name}</p>
-                    <p className="text-gray-500 text-xs">{service.service_name}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 flex-wrap justify-end">
-                  {/* Status badges */}
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    configured ? 'bg-blue-900/40 text-blue-400' : 'bg-yellow-900/40 text-yellow-400'
-                  }`}>
-                    {configured ? '🔑 Configured' : '⚠️ Not Configured'}
-                  </span>
-
-                  {service.last_tested_at && (
-                    <span className="text-xs text-gray-600 hidden sm:block">
-                      Tested {new Date(service.last_tested_at).toLocaleDateString()}
-                    </span>
-                  )}
-
-                  <ToggleSwitch
-                    enabled={!!service.is_active}
-                    disabled={toggling === service.id}
-                    onChange={(val) => handleToggle(service.id, val)}
-                  />
-
-                  <button
-                    onClick={() => handleTest(service.id)}
-                    disabled={testing === service.id}
-                    className="text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition"
-                  >
-                    {testing === service.id ? 'Testing…' : '🧪 Test'}
-                  </button>
-
-                  <button
-                    onClick={() => isEditing ? setEditingId(null) : handleEditOpen(service)}
-                    className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                      isEditing
-                        ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white'
-                    }`}
-                  >
-                    {isEditing ? 'Cancel' : '✏️ Edit Config'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Edit Panel */}
-              {isEditing && (
-                <div className="px-5 pb-5 border-t border-gray-700 pt-4">
-                  <p className="text-xs text-gray-500 mb-3">
-                    Update the credentials for <span className="text-white">{service.display_name}</span>
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {Object.keys(editConfig).map(key => (
-                      <ConfigField
-                        key={key}
-                        fieldKey={key}
-                        label={service.field_labels?.[key]}
-                        value={editConfig[key]}
-                        onChange={(val) => setEditConfig(prev => ({ ...prev, [key]: val }))}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      onClick={() => handleEditSave(service.id)}
-                      disabled={saving}
-                      className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm px-5 py-2 rounded-lg transition"
-                    >
-                      {saving ? 'Saving…' : '💾 Save Config'}
-                    </button>
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="bg-gray-700 hover:bg-gray-600 text-white text-sm px-4 py-2 rounded-lg transition"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
+        {/* OTP Providers Group */}
+        {otpServices.length > 0 && (
+          <div className="rounded-2xl border border-purple-900/40 bg-purple-950/10 overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-purple-900/30 bg-purple-950/20">
+              <span className="text-sm font-semibold text-purple-300">📲 OTP Providers</span>
+              <span className="text-xs text-gray-500">— MSG91 takes priority when active; falls back to Fast2SMS</span>
             </div>
-          );
-        })}
+            <div className="divide-y divide-gray-800/50 px-2 py-2 space-y-2">
+              {otpServices.map(service => (
+                <ServiceCard key={service.id} service={service} {...cardProps} otpBadge={getOtpBadge(service)} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* All other services */}
+        {otherServices.map(service => (
+          <ServiceCard key={service.id} service={service} {...cardProps} otpBadge={null} />
+        ))}
       </div>
     </div>
   );

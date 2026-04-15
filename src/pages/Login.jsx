@@ -21,7 +21,11 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err) {
       console.log('login error:', err?.response?.status, err?.response?.data);
-      setError(err?.response?.data?.message ?? 'Invalid credentials. Please try again.');
+      if (!err.response) {
+        setError(`Cannot reach server at ${import.meta.env.VITE_API_URL} — check if backend is running.`);
+      } else {
+        setError(err?.response?.data?.message ?? err?.response?.data?.detail ?? `Error ${err.response.status}: ${JSON.stringify(err.response.data)}`);
+      }
     } finally {
       setLoading(false);
     }
