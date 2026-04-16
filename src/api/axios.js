@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: (import.meta.env.VITE_API_URL ?? 'http://3.6.161.169/api') + '/admin', // baseURL: (import.meta.env.VITE_API_URL ?? 'https://api.rakhihealth.in/api') + '/admin',
+  baseURL: (import.meta.env.VITE_API_URL ?? 'https://api.rakhihealth.in/api') + '/admin',
   headers: { 'Content-Type': 'application/json' },
 });
 
