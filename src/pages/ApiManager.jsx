@@ -4,6 +4,7 @@ import ToggleSwitch from '../components/ToggleSwitch';
 import PageHeader from '../components/PageHeader';
 
 const SERVICE_ICONS = {
+  otp_mode:  '⚙️',
   twilio:     '📱',
   msg91:      '💬',
   fast2sms:   '📲',
@@ -46,7 +47,8 @@ const FIELD_META = {
   cluster:     { label: 'Cluster',       secret: false },
 };
 
-const OTP_SERVICES = ['msg91', 'fast2sms'];
+const OTP_SERVICES  = ['msg91', 'fast2sms'];
+const OTP_MODE_KEY  = 'otp_mode';
 
 const icon = (name) => SERVICE_ICONS[name?.toLowerCase()] ?? '🔌';
 
@@ -80,8 +82,16 @@ function ConfigField({ fieldKey, label, value, onChange }) {
 }
 
 function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditingId, saving, testing, toggling, handleToggle, handleTest, handleEditOpen, handleEditSave, otpBadge }) {
-  const configured = Object.values(service.config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
-  const isEditing  = editingId === service.id;
+  const configured  = Object.values(service.config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
+  const isEditing   = editingId === service.id;
+  const isOtpMode   = service.service_name?.toLowerCase() === OTP_MODE_KEY;
+  const currentMode = service.config?.mode ?? 'TEST';
+
+  const modeBadge = isOtpMode
+    ? currentMode === 'LIVE'
+      ? { label: '🟢 LIVE', cls: 'bg-green-900/40 text-green-400 border border-green-700' }
+      : { label: '🟡 TEST', cls: 'bg-yellow-900/40 text-yellow-400 border border-yellow-700' }
+    : null;
 
   return (
     <div className={`rounded-2xl border transition ${isEditing ? 'bg-gray-800 border-purple-700' : 'bg-gray-900 border-gray-800'}`}>
@@ -90,9 +100,18 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
           <div className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-xl">
             {icon(service.service_name)}
           </div>
-          <div>
-            <p className="text-white font-semibold">{service.display_name}</p>
-            <p className="text-gray-500 text-xs">{service.service_name}</p>
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="text-white font-semibold">{service.display_name}</p>
+              <p className="text-gray-500 text-xs">
+                {isOtpMode ? 'Auto-activates when MSG91 & Fast2SMS are OFF' : service.service_name}
+              </p>
+            </div>
+            {modeBadge && (
+              <span className={`text-xs px-2 py-1 rounded-full font-medium ${modeBadge.cls}`}>
+                {modeBadge.label}
+              </span>
+            )}
           </div>
         </div>
 
@@ -102,19 +121,23 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
               {otpBadge.label}
             </span>
           )}
-          <span className={`text-xs px-2 py-1 rounded-full ${configured ? 'bg-blue-900/40 text-blue-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
-            {configured ? '🔑 Configured' : '⚠️ Not Configured'}
-          </span>
+          {!isOtpMode && (
+            <span className={`text-xs px-2 py-1 rounded-full ${configured ? 'bg-blue-900/40 text-blue-400' : 'bg-yellow-900/40 text-yellow-400'}`}>
+              {configured ? '🔑 Configured' : '⚠️ Not Configured'}
+            </span>
+          )}
           {service.last_tested_at && (
             <span className="text-xs text-gray-600 hidden sm:block">
               Tested {new Date(service.last_tested_at).toLocaleDateString()}
             </span>
           )}
-          <ToggleSwitch
-            enabled={!!service.is_active}
-            disabled={toggling === service.id}
-            onChange={(val) => handleToggle(service.id, val)}
-          />
+          {!isOtpMode && (
+            <ToggleSwitch
+              enabled={!!service.is_active}
+              disabled={toggling === service.id}
+              onChange={(val) => handleToggle(service.id, val)}
+            />
+          )}
           <button
             onClick={() => handleTest(service.id)}
             disabled={testing === service.id}
@@ -131,6 +154,12 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
         </div>
       </div>
 
+      {isOtpMode && currentMode === 'LIVE' && (
+        <div className="mx-5 mb-3 mt-0 bg-yellow-900/20 border border-yellow-700/50 text-yellow-400 text-xs px-4 py-2.5 rounded-xl">
+          ⚠️ LIVE mode only works if MSG91 or Fast2SMS is active and configured. Otherwise backend auto-falls back to TEST.
+        </div>
+      )}
+
       {isEditing && (
         <div className="px-5 pb-5 border-t border-gray-700 pt-4">
           <p className="text-xs text-gray-500 mb-3">
@@ -138,13 +167,29 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.keys(editConfig).map(key => (
-              <ConfigField
-                key={key}
-                fieldKey={key}
-                label={service.field_labels?.[key]}
-                value={editConfig[key]}
-                onChange={(val) => setEditConfig(prev => ({ ...prev, [key]: val }))}
-              />
+              isOtpMode && key === 'mode' ? (
+                <div key={key} className="space-y-1">
+                  <label className="text-xs text-gray-400">
+                    {service.field_labels?.[key] ?? 'OTP Mode (LIVE / TEST)'}
+                  </label>
+                  <select
+                    value={editConfig[key] ?? 'TEST'}
+                    onChange={(e) => setEditConfig(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg border border-gray-700 text-sm outline-none focus:border-purple-500"
+                  >
+                    <option value="LIVE">LIVE</option>
+                    <option value="TEST">TEST</option>
+                  </select>
+                </div>
+              ) : (
+                <ConfigField
+                  key={key}
+                  fieldKey={key}
+                  label={service.field_labels?.[key]}
+                  value={editConfig[key]}
+                  onChange={(val) => setEditConfig(prev => ({ ...prev, [key]: val }))}
+                />
+              )
             ))}
           </div>
           <div className="flex gap-2 mt-4">
@@ -251,8 +296,9 @@ export default function ApiManager() {
   const isConfigured = (config) =>
     Object.values(config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
 
-  const otpServices   = services.filter(s => OTP_SERVICES.includes(s.service_name?.toLowerCase()));
-  const otherServices = services.filter(s => !OTP_SERVICES.includes(s.service_name?.toLowerCase()));
+  const otpModeService = services.find(s => s.service_name?.toLowerCase() === OTP_MODE_KEY);
+  const otpServices    = services.filter(s => OTP_SERVICES.includes(s.service_name?.toLowerCase()));
+  const otherServices  = services.filter(s => !OTP_SERVICES.includes(s.service_name?.toLowerCase()) && s.service_name?.toLowerCase() !== OTP_MODE_KEY);
   const msg91Active   = otpServices.find(s => s.service_name?.toLowerCase() === 'msg91')?.is_active;
 
   const getOtpBadge = (service) => {
@@ -330,6 +376,11 @@ export default function ApiManager() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* OTP Mode Card */}
+        {otpModeService && (
+          <ServiceCard key={otpModeService.id} service={otpModeService} {...cardProps} otpBadge={null} />
         )}
 
         {/* All other services */}
