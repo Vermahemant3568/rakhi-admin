@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   getQueueJobs, getUserPlans,
-  clearAllFailed, retryAllFailed, deleteFailedJob, regenerateUserPlans,
+  clearAllFailed, retryAllFailed, deleteFailedJob, regenerateUserPlans, resetStuckPlan,
 } from '../api/jobs';
+import { getStuckPlans } from '../api/progress';
 import DataTable  from '../components/DataTable';
 import PageHeader from '../components/PageHeader';
 
@@ -11,12 +12,16 @@ export default function JobsMonitor() {
   const [pending,    setPending]    = useState([]);
   const [failed,     setFailed]     = useState([]);
   const [userPlans,  setUserPlans]  = useState([]);
+  const [stuck,      setStuck]      = useState([]);
   const [loadingJ,   setLoadingJ]   = useState(true);
   const [loadingP,   setLoadingP]   = useState(true);
+  const [loadingS,   setLoadingS]   = useState(true);
   const [errorJ,     setErrorJ]     = useState('');
   const [errorP,     setErrorP]     = useState('');
-  const [tab,        setTab]        = useState('failed');
+  const [errorS,     setErrorS]     = useState('');
+  const [tab,        setTab]        = useState('stuck');
   const [actionMsg,  setActionMsg]  = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
   const loadJobs = () => {
     setLoadingJ(true);
@@ -38,7 +43,6 @@ export default function JobsMonitor() {
     getUserPlans()
       .then(r => {
         const d = r.data;
-        // backend returns { success, data: { data: [...], total, ... } }
         const list = d?.data?.data ?? d?.data ?? [];
         setUserPlans(Array.isArray(list) ? list : []);
       })
@@ -46,7 +50,29 @@ export default function JobsMonitor() {
       .finally(() => setLoadingP(false));
   };
 
-  useEffect(() => { loadJobs(); loadUserPlans(); }, []);
+  const loadStuckPlans = () => {
+    setLoadingS(true);
+    setErrorS('');
+    getStuckPlans()
+      .then(r => {
+        const d = r.data;
+        const list = d?.stuck_plans ?? d?.data ?? [];
+        setStuck(Array.isArray(list) ? list : []);
+      })
+      .catch(err => setErrorS(err?.response?.data?.message ?? 'Failed to load stuck plans.'))
+      .finally(() => setLoadingS(false));
+  };
+
+  const loadAll = () => { loadJobs(); loadUserPlans(); loadStuckPlans(); };
+
+  useEffect(() => { loadAll(); }, []);
+
+  // Auto-refresh every 30 seconds when enabled
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(loadAll, 30000);
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
 
   const flash = (msg) => { setActionMsg(msg); setTimeout(() => setActionMsg(''), 3000); };
 
@@ -72,18 +98,36 @@ export default function JobsMonitor() {
     catch (err) { flash(err?.response?.data?.message ?? 'Failed to regenerate plans.'); }
   };
 
+  const handleResetStuck = async (userId, userName) => {
+    if (!confirm(`Reset stuck plan for ${userName}? This will mark it as failed so they can retry.`)) return;
+    try { const r = await resetStuckPlan(userId); flash(r.data.message); loadStuckPlans(); }
+    catch (err) { flash(err?.response?.data?.message ?? 'Failed to reset stuck plan.'); }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <PageHeader
         title="Jobs Monitor"
-        subtitle="Track queue jobs and user plan generation"
+        subtitle="Track queue jobs, user plan generation, and stuck plans"
         action={
-          <button
-            onClick={() => { loadJobs(); loadUserPlans(); }}
-            className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-lg text-sm transition"
-          >
-            🔄 Refresh
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`px-4 py-2 rounded-lg text-sm transition ${
+                autoRefresh
+                  ? 'bg-green-900/40 text-green-400 border border-green-700'
+                  : 'bg-gray-800 text-gray-400 border border-gray-700'
+              }`}
+            >
+              {autoRefresh ? '🔄 Auto-refresh ON' : '⏸️ Auto-refresh OFF'}
+            </button>
+            <button
+              onClick={loadAll}
+              className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-lg text-sm transition"
+            >
+              🔄 Refresh Now
+            </button>
+          </div>
         }
       />
 
@@ -94,7 +138,7 @@ export default function JobsMonitor() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <p className="text-gray-500 text-xs">Pending Jobs</p>
           <p className="text-white text-2xl font-bold">{stats.pending_count}</p>
@@ -102,6 +146,10 @@ export default function JobsMonitor() {
         <div className="bg-gray-900 rounded-xl p-4 border border-red-900/40">
           <p className="text-red-400 text-xs">Failed Jobs</p>
           <p className="text-white text-2xl font-bold">{stats.failed_count}</p>
+        </div>
+        <div className="bg-gray-900 rounded-xl p-4 border border-yellow-900/40">
+          <p className="text-yellow-400 text-xs">Stuck Plans</p>
+          <p className="text-white text-2xl font-bold">{stuck.filter(s => !s.has_active_job).length}</p>
         </div>
         <div className="bg-gray-900 rounded-xl p-4 border border-purple-900/40">
           <p className="text-purple-400 text-xs">Total Plans</p>
@@ -118,10 +166,11 @@ export default function JobsMonitor() {
       {/* Tabs */}
       <div className="flex gap-2 border-b border-gray-800">
         {[
-          { key: 'failed',    label: `❌ Failed Jobs (${stats.failed_count})` },
-          { key: 'pending',   label: `⏳ Pending Jobs (${stats.pending_count})` },
-          { key: 'userplans', label: `📄 User Plans (${userPlans.length})` },
-          { key: 'bytype',    label: '📊 By Type' },
+          { key: 'stuck',     label: `⚠️ Stuck Plans (${stuck.filter(s => !s.has_active_job).length})`, color: 'yellow' },
+          { key: 'failed',    label: `❌ Failed Jobs (${stats.failed_count})`, color: 'red' },
+          { key: 'pending',   label: `⏳ Pending Jobs (${stats.pending_count})`, color: 'blue' },
+          { key: 'userplans', label: `📄 User Plans (${userPlans.length})`, color: 'purple' },
+          { key: 'bytype',    label: '📊 By Type', color: 'gray' },
         ].map(t => (
           <button
             key={t.key}
@@ -142,6 +191,54 @@ export default function JobsMonitor() {
         <div className="px-4 py-3 bg-red-900/40 border border-red-700 rounded-lg text-red-400 text-sm flex justify-between">
           <span>⚠️ {errorJ}</span>
           <button onClick={loadJobs} className="underline text-xs">Retry</button>
+        </div>
+      )}
+
+      {/* Stuck Plans Tab */}
+      {tab === 'stuck' && (
+        <div className="space-y-3">
+          {errorS && (
+            <div className="px-4 py-3 bg-red-900/40 border border-red-700 rounded-lg text-red-400 text-sm flex justify-between">
+              <span>⚠️ {errorS}</span>
+              <button onClick={loadStuckPlans} className="underline text-xs">Retry</button>
+            </div>
+          )}
+          <div className="px-4 py-3 bg-yellow-900/40 border border-yellow-700 rounded-lg text-yellow-400 text-sm">
+            ℹ️ Users stuck in "generating" state for 15+ minutes with no active queue job.
+          </div>
+          <DataTable
+            loading={loadingS}
+            columns={[
+              { key: 'user',        label: 'User',
+                render: r => r.user
+                  ? `${r.user.first_name ?? ''} ${r.user.last_name ?? ''}`.trim() || r.user.mobile || '—'
+                  : `User #${r.user_id}` },
+              { key: 'plan_state',  label: 'Plan State',
+                render: r => (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400">
+                    {r.plan_generation_state}
+                  </span>
+                )},
+              { key: 'stuck_since', label: 'Stuck Since',
+                render: r => r.stuck_since ? new Date(r.stuck_since).toLocaleString() : '—' },
+              { key: 'minutes_stuck', label: 'Duration',
+                render: r => <span className="text-red-400 font-bold">{r.minutes_stuck ?? 0} min</span> },
+              { key: 'has_active_job', label: 'Active Job',
+                render: r => r.has_active_job
+                  ? <span className="text-green-400 text-xs">✅ Yes</span>
+                  : <span className="text-red-400 text-xs">❌ No</span> },
+              { key: 'actions',     label: '',
+                render: r => !r.has_active_job && (
+                  <button
+                    onClick={() => handleResetStuck(r.user_id, r.user?.first_name ?? `User #${r.user_id}`)}
+                    className="text-yellow-400 hover:text-yellow-300 text-xs whitespace-nowrap"
+                  >
+                    🔧 Reset to Failed
+                  </button>
+                )},
+            ]}
+            data={stuck}
+          />
         </div>
       )}
 

@@ -4,57 +4,162 @@ import ToggleSwitch from '../components/ToggleSwitch';
 import PageHeader from '../components/PageHeader';
 
 const SERVICE_ICONS = {
-  otp_mode:  '⚙️',
-  twilio:     '📱',
-  msg91:      '💬',
-  fast2sms:   '📲',
-  firebase:   '🔥',
-  sendgrid:   '📧',
-  razorpay:   '💳',
-  stripe:     '💳',
-  pinecone:   '🌲',
-  openai:     '🤖',
-  gemini:     '🔮',
-  aws:        '☁️',
-  google_stt: '🎙️',
-  google_tts: '🔊',
-  pusher:     '📡',
+  otp_mode:       '⚙️',
+  twilio:         '📱',
+  msg91:          '💬',
+  fast2sms:       '📲',
+  firebase:       '🔥',
+  sendgrid:       '📧',
+  razorpay:       '💳',
+  stripe:         '💳',
+  pinecone:       '🌲',
+  openai:         '🤖',
+  gemini:         '🔮',
+  aws:            '☁️',
+  google_stt:     '🎙️',
+  google_tts:     '🔊',
+  elevenlabs_tts: '🎵',
+  voice_provider: '🔊',
+  groq_stt:       '⚡',
+  stt_provider:   '🎙️',
+  pusher:         '📡',
 };
 
+// Defines which config keys are known per service (used as fallback when backend doesn't send field_labels)
 const SERVICE_FIELDS = {
-  fast2sms:   ['api_key'],
-  msg91:      ['api_key', 'template_id'],
-  google_stt: ['api_key'],
-  google_tts: ['api_key'],
-  pinecone:   ['api_key', 'host', 'index'],
-  razorpay:   ['key_id', 'key_secret'],
-  firebase:   ['server_key', 'project_id'],
-  pusher:     ['app_id', 'app_key', 'app_secret', 'cluster'],
+  fast2sms:       ['api_key'],
+  msg91:          ['api_key', 'template_id'],
+  google_stt:     ['api_key'],
+  google_tts:     ['api_key'],
+  elevenlabs_tts: ['api_key'],
+  voice_provider: ['provider'],
+  groq_stt:       ['api_key', 'model_name'],
+  stt_provider:   ['provider'],
+  openai:         ['api_key'],
+  gemini:         ['api_key'],
+  sendgrid:       ['api_key'],
+  stripe:         ['api_key', 'webhook_secret'],
+  aws:            ['access_key', 'secret_key', 'region'],
+  twilio:         ['account_sid', 'auth_token', 'from_number'],
+  pinecone:       ['api_key', 'host', 'index'],
+  razorpay:       ['key_id', 'key_secret'],
+  firebase:       ['server_key', 'project_id'],
+  pusher:         ['app_id', 'app_key', 'app_secret', 'cluster'],
 };
 
-const FIELD_META = {
-  api_key:     { label: 'API Key',       secret: true  },
-  template_id: { label: 'OTP Template ID', secret: false },
-  host:        { label: 'Host',          secret: false },
-  index:       { label: 'Index Name',    secret: false },
-  key_id:      { label: 'Key ID',        secret: false },
-  key_secret:  { label: 'Key Secret',    secret: true  },
-  server_key:  { label: 'Server Key',    secret: true  },
-  project_id:  { label: 'Project ID',    secret: false },
-  app_id:      { label: 'App ID',        secret: false },
-  app_key:     { label: 'App Key',       secret: false },
-  app_secret:  { label: 'App Secret',    secret: true  },
-  cluster:     { label: 'Cluster',       secret: false },
+// Secret fields — rendered as password inputs with show/hide
+const SECRET_FIELDS = new Set([
+  'api_key', 'key_secret', 'server_key', 'app_secret',
+  'auth_token', 'secret_key', 'webhook_secret',
+]);
+
+// Fields that render as <select> dropdowns
+// Note: 'provider' is intentionally NOT here — it's service-specific and
+// resolved via backend field_options (see ServiceCard render logic below).
+const DROPDOWN_FIELDS = {
+  mode: {
+    label: 'OTP Mode',
+    options: [
+      { value: 'LIVE', label: '🟢 LIVE' },
+      { value: 'TEST', label: '🟡 TEST' },
+    ],
+  },
 };
 
-const OTP_SERVICES  = ['msg91', 'fast2sms'];
-const OTP_MODE_KEY  = 'otp_mode';
+// Per-service provider dropdowns — used when backend doesn't send field_options
+const PROVIDER_OPTIONS = {
+  voice_provider: {
+    label: 'TTS Provider',
+    options: [
+      { value: 'google',     label: '🔊 Google TTS' },
+      { value: 'elevenlabs', label: '🎵 ElevenLabs'  },
+    ],
+  },
+  stt_provider: {
+    label: 'STT Provider',
+    options: [
+      { value: 'google', label: '🎙️ Google STT' },
+      { value: 'groq',   label: '⚡ Groq (Whisper)' },
+    ],
+  },
+};
+
+const FIELD_LABELS = {
+  api_key:        'API Key',
+  template_id:    'OTP Template ID',
+  host:           'Host URL',
+  index:          'Index Name',
+  key_id:         'Key ID',
+  key_secret:     'Key Secret',
+  server_key:     'Server Key',
+  project_id:     'Project ID',
+  app_id:         'App ID',
+  app_key:        'App Key',
+  app_secret:     'App Secret',
+  cluster:        'Cluster',
+  access_key:     'Access Key ID',
+  secret_key:     'Secret Access Key',
+  region:         'Region',
+  account_sid:    'Account SID',
+  auth_token:     'Auth Token',
+  from_number:    'From Number',
+  webhook_secret: 'Webhook Secret',
+  provider:       'TTS Provider',
+  mode:           'OTP Mode',
+};
+
+const OTP_SERVICES = ['msg91', 'fast2sms'];
+const OTP_MODE_KEY = 'otp_mode';
 
 const icon = (name) => SERVICE_ICONS[name?.toLowerCase()] ?? '🔌';
 
+// ── Test Result Popup ─────────────────────────────────────────────────────────
+function TestResultPopup({ result, onClose }) {
+  if (!result) return null;
+  const isSuccess = result.success;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className={`relative w-full max-w-sm mx-4 rounded-2xl border p-6 shadow-2xl ${
+          isSuccess
+            ? 'bg-green-950/90 border-green-700'
+            : 'bg-red-950/90 border-red-700'
+        }`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex flex-col items-center text-center gap-3">
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center text-3xl ${
+            isSuccess ? 'bg-green-900/60' : 'bg-red-900/60'
+          }`}>
+            {isSuccess ? '✅' : '❌'}
+          </div>
+          <p className={`font-semibold text-base ${isSuccess ? 'text-green-300' : 'text-red-300'}`}>
+            {isSuccess ? 'Test Passed' : 'Test Failed'}
+          </p>
+          <p className="text-sm text-gray-300 leading-relaxed">{result.message}</p>
+          {result.service && (
+            <p className="text-xs text-gray-500">{result.service}</p>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className={`mt-5 w-full py-2 rounded-xl text-sm font-medium transition ${
+            isSuccess
+              ? 'bg-green-700 hover:bg-green-600 text-white'
+              : 'bg-red-700 hover:bg-red-600 text-white'
+          }`}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Config Field ──────────────────────────────────────────────────────────────
 function ConfigField({ fieldKey, label, value, onChange }) {
-  const meta = FIELD_META[fieldKey] ?? { secret: false };
-  const displayLabel = label ?? meta.label ?? fieldKey.replace(/_/g, ' ');
+  const isSecret     = SECRET_FIELDS.has(fieldKey);
+  const displayLabel = label ?? FIELD_LABELS[fieldKey] ?? fieldKey.replace(/_/g, ' ');
   const [show, setShow] = useState(false);
 
   return (
@@ -62,12 +167,12 @@ function ConfigField({ fieldKey, label, value, onChange }) {
       <label className="text-xs text-gray-400 capitalize">{displayLabel}</label>
       <div className="relative">
         <input
-          type={meta.secret && !show ? 'password' : 'text'}
+          type={isSecret && !show ? 'password' : 'text'}
           value={value ?? ''}
           onChange={(e) => onChange(e.target.value)}
           className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg border border-gray-700 text-sm outline-none focus:border-purple-500 pr-16"
         />
-        {meta.secret && (
+        {isSecret && (
           <button
             type="button"
             onClick={() => setShow(s => !s)}
@@ -81,10 +186,16 @@ function ConfigField({ fieldKey, label, value, onChange }) {
   );
 }
 
+// ── Service Card ──────────────────────────────────────────────────────────────
 function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditingId, saving, testing, toggling, handleToggle, handleTest, handleEditOpen, handleEditSave, otpBadge }) {
-  const configured  = Object.values(service.config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
-  const isEditing   = editingId === service.id;
-  const isOtpMode   = service.service_name?.toLowerCase() === OTP_MODE_KEY;
+  const configured = Object.entries(service.config ?? {}).some(([k, v]) => {
+    if (!v || String(v).startsWith('your_')) return false;
+    // Short but valid values (provider names, cluster codes, etc.)
+    const shortOk = ['provider', 'mode', 'cluster', 'region', 'model', 'model_name'].includes(k);
+    return shortOk ? String(v).length > 0 : String(v).length > 5;
+  });
+  const isEditing  = editingId === service.id;
+  const isOtpMode  = service.service_name?.toLowerCase() === OTP_MODE_KEY;
   const currentMode = service.config?.mode ?? 'TEST';
 
   const modeBadge = isOtpMode
@@ -139,7 +250,7 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
             />
           )}
           <button
-            onClick={() => handleTest(service.id)}
+            onClick={() => handleTest(service.id, service.display_name)}
             disabled={testing === service.id}
             className="text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition"
           >
@@ -166,22 +277,32 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
             Update the credentials for <span className="text-white">{service.display_name}</span>
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {Object.keys(editConfig).map(key => (
-              isOtpMode && key === 'mode' ? (
-                <div key={key} className="space-y-1">
-                  <label className="text-xs text-gray-400">
-                    {service.field_labels?.[key] ?? 'OTP Mode (LIVE / TEST)'}
-                  </label>
-                  <select
-                    value={editConfig[key] ?? 'TEST'}
-                    onChange={(e) => setEditConfig(prev => ({ ...prev, [key]: e.target.value }))}
-                    className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg border border-gray-700 text-sm outline-none focus:border-purple-500"
-                  >
-                    <option value="LIVE">LIVE</option>
-                    <option value="TEST">TEST</option>
-                  </select>
-                </div>
-              ) : (
+            {Object.keys(editConfig).map(key => {
+              // Priority: 1) backend field_options  2) per-service PROVIDER_OPTIONS  3) shared DROPDOWN_FIELDS
+              const backendOptions = service.field_options?.[key];
+              const providerDef    = key === 'provider' ? PROVIDER_OPTIONS[service.service_name] ?? null : null;
+              const dropdownDef    = backendOptions
+                ? { label: service.field_labels?.[key] ?? FIELD_LABELS[key] ?? key, options: backendOptions }
+                : providerDef ?? DROPDOWN_FIELDS[key] ?? null;
+
+              if (dropdownDef) {
+                return (
+                  <div key={key} className="space-y-1">
+                    <label className="text-xs text-gray-400">{dropdownDef.label}</label>
+                    <select
+                      value={editConfig[key] ?? dropdownDef.options[0]?.value ?? ''}
+                      onChange={(e) => setEditConfig(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg border border-gray-700 text-sm outline-none focus:border-purple-500"
+                    >
+                      {dropdownDef.options.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+
+              return (
                 <ConfigField
                   key={key}
                   fieldKey={key}
@@ -189,8 +310,8 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
                   value={editConfig[key]}
                   onChange={(val) => setEditConfig(prev => ({ ...prev, [key]: val }))}
                 />
-              )
-            ))}
+              );
+            })}
           </div>
           <div className="flex gap-2 mt-4">
             <button
@@ -213,6 +334,7 @@ function ServiceCard({ service, editingId, editConfig, setEditConfig, setEditing
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ApiManager() {
   const [services,   setServices]   = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -223,6 +345,7 @@ export default function ApiManager() {
   const [saving,     setSaving]     = useState(false);
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
+  const [testResult, setTestResult] = useState(null); // { success, message, service }
 
   useEffect(() => { fetchServices(); }, []);
 
@@ -238,34 +361,42 @@ export default function ApiManager() {
     }
   };
 
-  const notify = (msg, type = 'success') => {
-    type === 'success' ? setSuccess(msg) : setError(msg);
-    if (type === 'success') setTimeout(() => setSuccess(''), 3000);
-  };
-
   const handleToggle = async (id, value) => {
     setToggling(id);
     setServices(prev => prev.map(s => s.id === id ? { ...s, is_active: value } : s));
     try {
-      await api.put(`/api-manager/${id}/toggle`);
-      notify(value ? 'Service activated.' : 'Service deactivated.');
+      const res = await api.put(`/api-manager/${id}/toggle`);
+      // Sync all services from response (MSG91 toggle can disable Fast2SMS)
+      const updated = res.data?.data;
+      if (updated) {
+        setServices(prev => prev.map(s => s.id === updated.id ? updated : s));
+      }
+      setSuccess(value ? 'Service activated.' : 'Service deactivated.');
+      setTimeout(() => setSuccess(''), 3000);
     } catch {
       setServices(prev => prev.map(s => s.id === id ? { ...s, is_active: !value } : s));
-      notify('Failed to toggle service.', 'error');
+      setError('Failed to toggle service.');
     } finally {
       setToggling(null);
     }
   };
 
-  const handleTest = async (id) => {
+  const handleTest = async (id, displayName) => {
     setTesting(id);
-    setError('');
     try {
       const res = await api.post(`/api-manager/${id}/test`);
-      notify(res.data?.message ?? 'Connection test passed!');
+      setTestResult({
+        success: res.data?.success !== false,
+        message: res.data?.message ?? 'Connection test passed!',
+        service: displayName,
+      });
       fetchServices();
     } catch (e) {
-      notify(e.response?.data?.message ?? e.response?.data?.error ?? 'Test failed. Check your API credentials.', 'error');
+      setTestResult({
+        success: false,
+        message: e.response?.data?.message ?? e.response?.data?.error ?? 'Test failed. Check your API credentials.',
+        service: displayName,
+      });
     } finally {
       setTesting(null);
     }
@@ -273,8 +404,11 @@ export default function ApiManager() {
 
   const handleEditOpen = (service) => {
     setEditingId(service.id);
-    const name     = service.service_name?.toLowerCase();
-    const fallback = (SERVICE_FIELDS[name] ?? Object.keys(service.field_labels ?? {})).reduce((acc, k) => ({ ...acc, [k]: '' }), {});
+    const name       = service.service_name?.toLowerCase();
+    const knownKeys  = SERVICE_FIELDS[name] ?? Object.keys(service.field_labels ?? {});
+    const configKeys = Object.keys(service.config ?? {});
+    const allKeys    = knownKeys.length > 0 ? knownKeys : configKeys;
+    const fallback   = allKeys.reduce((acc, k) => ({ ...acc, [k]: '' }), {});
     setEditConfig({ ...fallback, ...(service.config ?? {}) });
     setError('');
   };
@@ -284,22 +418,27 @@ export default function ApiManager() {
     try {
       await api.put(`/api-manager/${id}`, { config: editConfig });
       setEditingId(null);
-      notify('Config saved successfully!');
+      setSuccess('Config saved successfully!');
+      setTimeout(() => setSuccess(''), 3000);
       fetchServices();
     } catch (e) {
-      notify(e.response?.data?.message ?? e.response?.data?.error ?? 'Failed to save. Please try again.', 'error');
+      setError(e.response?.data?.message ?? e.response?.data?.error ?? 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
   const isConfigured = (config) =>
-    Object.values(config ?? {}).some(v => v && !String(v).startsWith('your_') && String(v).length > 5);
+    Object.entries(config ?? {}).some(([k, v]) => {
+      if (!v || String(v).startsWith('your_')) return false;
+      const shortOk = ['provider', 'mode', 'cluster', 'region', 'model', 'model_name'].includes(k);
+      return shortOk ? String(v).length > 0 : String(v).length > 5;
+    });
 
   const otpModeService = services.find(s => s.service_name?.toLowerCase() === OTP_MODE_KEY);
   const otpServices    = services.filter(s => OTP_SERVICES.includes(s.service_name?.toLowerCase()));
   const otherServices  = services.filter(s => !OTP_SERVICES.includes(s.service_name?.toLowerCase()) && s.service_name?.toLowerCase() !== OTP_MODE_KEY);
-  const msg91Active   = otpServices.find(s => s.service_name?.toLowerCase() === 'msg91')?.is_active;
+  const msg91Active    = otpServices.find(s => s.service_name?.toLowerCase() === 'msg91')?.is_active;
 
   const getOtpBadge = (service) => {
     const name = service.service_name?.toLowerCase();
@@ -322,6 +461,8 @@ export default function ApiManager() {
 
   return (
     <div className="p-6">
+      <TestResultPopup result={testResult} onClose={() => setTestResult(null)} />
+
       <PageHeader
         title="API Services"
         subtitle="Manage third-party API integrations and credentials"

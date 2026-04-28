@@ -6,3 +6,4 @@ export const clearAllFailed = () => api.delete('/jobs/clear-all-failed');
 export const retryAllFailed = () => api.post('/jobs/retry-all-failed');
 export const deleteFailedJob = (id) => api.delete(`/jobs/failed/${id}`);
 export const regenerateUserPlans = (userId) => api.post(`/users/${userId}/regenerate-plans`);
+export const resetStuckPlan = (userId) => api.post('/jobs/reset-stuck-plan', { user_id: userId });
